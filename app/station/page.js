@@ -29,6 +29,8 @@ export default function StationPanel() {
   const [userId, setUserId]         = useState(null)
   const [orders, setOrders]         = useState([])
   const [drivers, setDrivers]       = useState([])
+  const [stationOrders, setStationOrders]   = useState([])
+  const [pendingDrivers, setPendingDrivers] = useState([])
   const [loading, setLoading]       = useState(true)
   const [activeTab, setActiveTab]   = useState('recibir')
   const [selectedOrder, setSelectedOrder] = useState(null)
@@ -57,7 +59,12 @@ export default function StationPanel() {
   }, [])
 
   const loadAll = async (supabase) => {
-    const [{ data: ordersData }, { data: driversData }] = await Promise.all([
+    const [
+      { data: ordersData },
+      { data: driversData },
+      { data: stationData },
+      { data: pendingData }
+    ] = await Promise.all([
       supabase.from('orders')
         .select('*, client:client_id(full_name,phone), driver:driver_id(id,user_id,users(full_name))')
         .not('status', 'in', '("delivered","cancelled","devuelto_a_remitente")')
@@ -65,10 +72,14 @@ export default function StationPanel() {
         .limit(200),
       supabase.from('drivers')
         .select('id, user:user_id(full_name,email)')
-        .eq('status', 'online')
+        .eq('status', 'online'),
+      supabase.rpc('get_station_orders'),
+      supabase.rpc('get_drivers_with_pending_returns')
     ])
     setOrders(ordersData || [])
     setDrivers(driversData || [])
+    setStationOrders(Array.isArray(stationData) ? stationData : [])
+    setPendingDrivers(Array.isArray(pendingData) ? pendingData : [])
     if (driversData?.length > 0) setSelectedDriver(driversData[0].id)
   }
 
@@ -171,10 +182,12 @@ export default function StationPanel() {
   const activas       = byStatus(['picked_up','en_estacion','in_transit','intento_fallido','regreso_a_cliente'])
 
   const TABS = [
-    { id:'recibir',      label:'📥 Recibir',      count: porRecibir.length,   color:'#185FA5' },
-    { id:'despachar',    label:'🚚 Despachar',     count: enEstacion.length,   color:'#7C3AED' },
-    { id:'devoluciones', label:'🔄 Devoluciones',  count: devoluciones.length, color:'#DC2626' },
-    { id:'activas',      label:'📋 Activas',       count: activas.length,      color:'#085041' },
+    { id:'recibir',      label:'📥 Recibir',       count: porRecibir.length,    color:'#185FA5' },
+    { id:'despachar',    label:'🚚 Despachar',      count: enEstacion.length,    color:'#7C3AED' },
+    { id:'devoluciones', label:'🔄 Devoluciones',   count: devoluciones.length,  color:'#DC2626' },
+    { id:'estacion',     label:'📦 Mi Estación',    count: stationOrders.length, color:'#085041' },
+    { id:'antirobo',     label:'🚨 Anti-Robo',      count: pendingDrivers.length,color:'#DC2626' },
+    { id:'activas',      label:'📋 Activas',        count: activas.length,       color:'#374151' },
   ]
 
   const tabOrders = {
@@ -252,6 +265,88 @@ export default function StationPanel() {
             </div>
           ))}
         </div>
+
+        {/* TAB MI ESTACIÓN */}
+        {activeTab === 'estacion' && (
+          <div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}}>
+              <h2 style={{fontSize:15,fontWeight:600}}>Órdenes que pasaron por esta estación</h2>
+              <span style={{fontSize:12,color:'#888'}}>{stationOrders.length} órdenes</span>
+            </div>
+            {stationOrders.length === 0
+              ? <div style={s.empty}><p style={s.emptyText}>No hay órdenes registradas en esta estación</p></div>
+              : stationOrders.map((o,i) => (
+                <div key={i} style={{...s.orderCard,marginBottom:8,cursor:'pointer'}} onClick={()=>setSelectedOrder(orders.find(ord=>ord.id===o.id)||o)}>
+                  <div style={s.orderRow}>
+                    <div style={s.orderLeft}>
+                      <div style={s.orderCode}>#{o.tracking_code}</div>
+                      <div style={s.orderRoute}>{o.dest_address?.substring(0,50)}</div>
+                      <div style={s.orderMeta}>
+                        {o.driver_name ? `🚚 ${o.driver_name}` : 'Sin repartidor'}
+                        {o.intentos_entrega > 0 && <span style={{color:'#DC2626',marginLeft:8}}>⚠️ {o.intentos_entrega} intentos</span>}
+                      </div>
+                    </div>
+                    <span style={{...s.badge,background:STATUS_COLOR[o.status]||'#eee',color:STATUS_TEXT[o.status]||'#333'}}>
+                      {STATUS_LABEL[o.status]||o.status}
+                    </span>
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+        )}
+
+        {/* TAB ANTI-ROBO */}
+        {activeTab === 'antirobo' && (
+          <div>
+            <div style={{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:10,padding:'12px 16px',marginBottom:'1rem'}}>
+              <p style={{fontSize:13,color:'#991B1B',margin:0,fontWeight:600}}>
+                🚨 Repartidores con guías pendientes por regresar a estación
+              </p>
+              <p style={{fontSize:12,color:'#B91C1C',margin:'4px 0 0'}}>
+                Verificar físicamente que el repartidor entregue todas las guías antes de cerrar turno
+              </p>
+            </div>
+
+            {pendingDrivers.length === 0
+              ? (
+                <div style={{...s.empty,background:'#F0FDF4',border:'1px solid #BBF7D0'}}>
+                  <p style={{fontSize:14,color:'#166534',fontWeight:600}}>✅ Sin pendientes</p>
+                  <p style={{fontSize:12,color:'#16a34a'}}>Todos los repartidores tienen sus guías en orden</p>
+                </div>
+              )
+              : pendingDrivers.map((driver, i) => (
+                <div key={i} style={{background:'#fff',border:'2px solid #FECACA',borderRadius:10,padding:'1rem',marginBottom:8}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
+                    <div>
+                      <div style={{fontSize:14,fontWeight:700,color:'#222'}}>🚚 {driver.driver_name}</div>
+                      <div style={{fontSize:12,color:'#888'}}>{driver.driver_phone || 'Sin teléfono'}</div>
+                    </div>
+                    <span style={{background:'#FEE2E2',color:'#991B1B',fontSize:12,fontWeight:700,padding:'4px 10px',borderRadius:20}}>
+                      {driver.guias_pendientes} guía{driver.guias_pendientes !== 1 ? 's' : ''} pendiente{driver.guias_pendientes !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div style={{borderTop:'1px solid #FEE2E2',paddingTop:8}}>
+                    {(driver.ordenes || []).map((o, j) => (
+                      <div key={j} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'1px solid #fafafa'}}>
+                        <div>
+                          <span style={{fontSize:12,fontWeight:600,color:'#222'}}>#{o.tracking_code}</span>
+                          <span style={{fontSize:11,color:'#888',marginLeft:8}}>{o.dest_address?.substring(0,35)}</span>
+                        </div>
+                        <div style={{display:'flex',alignItems:'center',gap:6}}>
+                          {o.intentos > 0 && <span style={{fontSize:10,color:'#DC2626'}}>⚠️ {o.intentos} intentos</span>}
+                          <span style={{...s.badge,fontSize:10,background:STATUS_COLOR[o.status]||'#eee',color:STATUS_TEXT[o.status]||'#333'}}>
+                            {STATUS_LABEL[o.status]||o.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+        )}
 
         {/* MODAL */}
         {selectedOrder && (

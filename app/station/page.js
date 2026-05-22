@@ -258,10 +258,10 @@ export default function StationPanel() {
                 color:activeTab===tab.id?tab.color:'#888',fontWeight:activeTab===tab.id?700:400,
                 borderBottom:activeTab===tab.id?`2px solid ${tab.color}`:'2px solid transparent',
                 marginBottom:-1,display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
-              <span style={{fontSize:18}}>{tab.label.split(' ')[0]}</span>
-              <span style={{fontSize:11,lineHeight:1.2}}>{tab.label.split(' ').slice(1).join(' ')}</span>
+              <span style={{fontSize:20}}>{tab.label.split(' ')[0]}</span>
+              <span style={{fontSize:21,lineHeight:1.2}}>{tab.label.split(' ').slice(1).join(' ')}</span>
               {tab.count > 0 && (
-                <span style={{background:tab.color,color:'#fff',fontSize:10,padding:'0px 5px',borderRadius:8,fontWeight:700,lineHeight:'15px'}}>
+                <span style={{background:tab.color,color:'#fff',fontSize:20,padding:'0px 5px',borderRadius:8,fontWeight:700,lineHeight:'24px'}}>
                   {tab.count}
                 </span>
               )}

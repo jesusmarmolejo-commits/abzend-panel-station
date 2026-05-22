@@ -250,13 +250,21 @@ export default function StationPanel() {
         </div>
 
         {/* Tabs */}
-        <div style={{display:'flex',borderBottom:'1px solid #eee',marginBottom:'1rem',gap:4,overflowX:'auto'}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',borderBottom:'1px solid #eee',marginBottom:'1rem',gap:0}}>
           {TABS.map(tab=>(
             <button key={tab.id} onClick={()=>setActiveTab(tab.id)}
-              style={{padding:'8px 14px',border:'none',background:'none',cursor:'pointer',fontSize:13,whiteSpace:'nowrap',
-                color:activeTab===tab.id?tab.color:'#888',fontWeight:activeTab===tab.id?600:400,
-                borderBottom:activeTab===tab.id?`2px solid ${tab.color}`:'2px solid transparent',marginBottom:-1}}>
-              {tab.label} {tab.count > 0 && <span style={{background:tab.color,color:'#fff',fontSize:10,padding:'1px 5px',borderRadius:10,marginLeft:4}}>{tab.count}</span>}
+              style={{padding:'8px 4px',border:'none',background:'none',cursor:'pointer',
+                fontSize:10,whiteSpace:'nowrap',textAlign:'center',
+                color:activeTab===tab.id?tab.color:'#888',fontWeight:activeTab===tab.id?700:400,
+                borderBottom:activeTab===tab.id?`2px solid ${tab.color}`:'2px solid transparent',
+                marginBottom:-1,display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
+              <span style={{fontSize:14}}>{tab.label.split(' ')[0]}</span>
+              <span style={{fontSize:9,lineHeight:1.2}}>{tab.label.split(' ').slice(1).join(' ')}</span>
+              {tab.count > 0 && (
+                <span style={{background:tab.color,color:'#fff',fontSize:9,padding:'0px 4px',borderRadius:8,fontWeight:700,lineHeight:'14px'}}>
+                  {tab.count}
+                </span>
+              )}
             </button>
           ))}
         </div>

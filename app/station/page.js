@@ -194,6 +194,35 @@ export default function StationPanel() {
   const todayRoutes   = routes.filter(r => r.date === routeFilterDate)
   const routesEnRuta  = todayRoutes.filter(r => r.status === 'EN_RUTA')
   const now           = new Date()
+
+  // Brackets de retraso KPI (7-10 entregas/hora)
+  const BRACKETS = [
+    { min:0,   max:30,  label:'0-30 min',   emoji:'✅', bg:'#DCFCE7', text:'#166534', border:'#86EFAC', desc:'En ritmo' },
+    { min:30,  max:60,  label:'30-60 min',  emoji:'⚡', bg:'#FEF9C3', text:'#854D0E', border:'#FDE047', desc:'Ritmo moderado' },
+    { min:60,  max:120, label:'1-2 hrs',    emoji:'⚠️', bg:'#FFEDD5', text:'#9A3412', border:'#FDBA74', desc:'Atención requerida' },
+    { min:120, max:180, label:'2-3 hrs',    emoji:'🚨', bg:'#FEE2E2', text:'#991B1B', border:'#FCA5A5', desc:'Retraso severo' },
+    { min:180, max:240, label:'3-4 hrs',    emoji:'🔴', bg:'#FEE2E2', text:'#7F1D1D', border:'#EF4444', desc:'Crítico' },
+    { min:240, max:Infinity, label:'4+ hrs',emoji:'⛔', bg:'#1F2937', text:'#F9FAFB', border:'#374151', desc:'Incumplimiento KPI' },
+  ]
+
+  const getMinutosEnRuta = (order) => {
+    if (!order.status_updated_at) return 0
+    return Math.floor((now - new Date(order.status_updated_at)) / 60000)
+  }
+
+  const getBracket = (minutos) =>
+    BRACKETS.find(b => minutos >= b.min && minutos < b.max) || BRACKETS[BRACKETS.length-1]
+
+  const inTransitOrders = orders.filter(o => o.status === 'in_transit' && o.status_updated_at)
+
+  const bracketCounts = BRACKETS.map(b => ({
+    ...b,
+    orders: inTransitOrders.filter(o => {
+      const m = getMinutosEnRuta(o)
+      return m >= b.min && m < b.max
+    })
+  })).filter(b => b.orders.length > 0)
+
   const delayedOrders = orders.filter(o =>
     o.status === 'in_transit' &&
     o.status_updated_at &&
@@ -364,6 +393,71 @@ export default function StationPanel() {
                 onChange={e=>setRouteFilterDate(e.target.value)}
                 style={{padding:'6px 10px',border:'1px solid #ddd',borderRadius:8,fontSize:13}} />
             </div>
+
+            {/* KPI BRACKETS */}
+            {inTransitOrders.length > 0 && (
+              <div style={{marginBottom:'1rem'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                  <span style={{fontSize:18,fontWeight:700,color:'#222'}}>📊 KPI Entregas — {inTransitOrders.length} en ruta</span>
+                  <span style={{fontSize:15,color:'#888'}}>Objetivo: 7-10/hora</span>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:12}}>
+                  {BRACKETS.map((b,i) => {
+                    const count = inTransitOrders.filter(o => {
+                      const m = getMinutosEnRuta(o); return m >= b.min && m < b.max
+                    }).length
+                    return (
+                      <div key={i} style={{background:b.bg,border:`2px solid ${b.border}`,borderRadius:10,
+                        padding:'10px 12px',textAlign:'center',opacity:count===0?0.35:1}}>
+                        <div style={{fontSize:22}}>{b.emoji}</div>
+                        <div style={{fontSize:17,fontWeight:700,color:b.text,margin:'4px 0'}}>{count}</div>
+                        <div style={{fontSize:13,fontWeight:600,color:b.text}}>{b.label}</div>
+                        <div style={{fontSize:11,color:b.text,opacity:0.8}}>{b.desc}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {bracketCounts.map((b, bi) => (
+                  <div key={bi} style={{background:'#fff',border:`1px solid ${b.border}`,borderRadius:10,marginBottom:8,overflow:'hidden'}}>
+                    <div style={{background:b.bg,padding:'8px 14px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <span style={{fontSize:16,fontWeight:700,color:b.text}}>{b.emoji} {b.label} — {b.orders.length} guía{b.orders.length!==1?'s':''}</span>
+                      <span style={{fontSize:13,color:b.text,opacity:0.8}}>{b.desc}</span>
+                    </div>
+                    <div style={{overflowX:'auto'}}>
+                      <table style={{width:'100%',borderCollapse:'collapse',fontSize:15}}>
+                        <thead>
+                          <tr style={{background:'#F9FAFB',borderBottom:`1px solid ${b.border}`}}>
+                            {['Guía','Repartidor','Ruta','Tiempo en ruta','Destino'].map(h=>(
+                              <th key={h} style={{textAlign:'left',padding:'8px 12px',fontSize:13,color:'#555',fontWeight:600,whiteSpace:'nowrap'}}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {b.orders.slice(0,PAGE_SIZE).map((o,oi) => {
+                            const mins  = getMinutosEnRuta(o)
+                            const route = routes.find(r => r.items?.some(it => it.order_id === o.id))
+                            const hDisp = mins >= 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins}m`
+                            return (
+                              <tr key={oi} style={{borderBottom:'1px solid #F3F4F6',background:oi%2===0?'#fff':'#FAFAFA'}}>
+                                <td style={{padding:'8px 12px',fontWeight:700,fontSize:14}}>{o.tracking_code}</td>
+                                <td style={{padding:'8px 12px',fontSize:14}}>
+                                  {o.driver?.user?.full_name||'Sin asignar'}
+                                  {o.driver?.user?.phone && <div style={{fontSize:12,color:'#888'}}>{o.driver.user.phone}</div>}
+                                </td>
+                                <td style={{padding:'8px 12px',fontSize:14,color:'#185FA5',fontWeight:600}}>{route?.route_code||'—'}</td>
+                                <td style={{padding:'8px 12px',fontWeight:700,color:b.text,whiteSpace:'nowrap'}}>{b.emoji} {hDisp}</td>
+                                <td style={{padding:'8px 12px',fontSize:13,color:'#555'}}>{o.dest_address?.substring(0,35)}</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Tabla de órdenes con delay >6h */}
             {delayedOrders.length > 0 && (

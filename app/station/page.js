@@ -35,6 +35,8 @@ export default function StationPanel() {
   const [routeFilterDate, setRouteFilterDate] = useState(new Date().toISOString().slice(0,10))
   const [loading, setLoading]       = useState(true)
   const [activeTab, setActiveTab]   = useState('recibir')
+  const [pages, setPages]           = useState({recibir:1,despachar:1,devoluciones:1,activas:1,estacion:1,antirobo:1,rutas:1})
+  const PAGE_SIZE = 20
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [selectedDriver, setSelectedDriver] = useState('')
   const [processing, setProcessing] = useState(false)
@@ -214,6 +216,32 @@ export default function StationPanel() {
     rutas: [], estacion: [], antirobo: []
   }
 
+  const setPage = (tab, p) => setPages(prev => ({...prev, [tab]: p}))
+  const paginate = (arr, tab) => {
+    const p = pages[tab] || 1
+    return arr.slice((p-1)*PAGE_SIZE, p*PAGE_SIZE)
+  }
+  const totalPages = (arr) => Math.max(1, Math.ceil(arr.length / PAGE_SIZE))
+
+  const Pagination = ({arr, tab}) => {
+    const total = totalPages(arr)
+    const cur   = pages[tab] || 1
+    if (total <= 1) return null
+    return (
+      <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:8,marginTop:'1rem'}}>
+        <button onClick={()=>setPage(tab,cur-1)} disabled={cur===1}
+          style={{padding:'6px 14px',border:'1px solid #ddd',borderRadius:8,cursor:'pointer',fontSize:16,background:'#fff',opacity:cur===1?0.4:1}}>
+          ‹
+        </button>
+        <span style={{fontSize:16,color:'#888'}}>{cur} / {total}</span>
+        <button onClick={()=>setPage(tab,cur+1)} disabled={cur===total}
+          style={{padding:'6px 14px',border:'1px solid #ddd',borderRadius:8,cursor:'pointer',fontSize:16,background:'#fff',opacity:cur===total?0.4:1}}>
+          ›
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div style={s.container}>
       <div style={s.topbar}>
@@ -275,7 +303,7 @@ export default function StationPanel() {
           {(tabOrders[activeTab]||[]).length === 0 && (
             <div style={s.empty}><p style={s.emptyText}>No hay órdenes en esta categoría</p></div>
           )}
-          {(tabOrders[activeTab]||[]).map(order=>(
+          {paginate(tabOrders[activeTab]||[], activeTab).map(order=>(
             <div key={order.id} style={s.orderCard} onClick={()=>setSelectedOrder(order)}>
               <div style={s.orderRow}>
                 <div style={s.orderLeft}>
@@ -292,6 +320,7 @@ export default function StationPanel() {
               </div>
             </div>
           ))}
+          <Pagination arr={tabOrders[activeTab]||[]} tab={activeTab} />
         </div>
         )}
 
@@ -304,7 +333,7 @@ export default function StationPanel() {
             </div>
             {stationOrders.length === 0
               ? <div style={s.empty}><p style={s.emptyText}>No hay órdenes registradas en esta estación</p></div>
-              : stationOrders.map((o,i) => (
+              : paginate(stationOrders, 'estacion').map((o,i) => (
                 <div key={i} style={{...s.orderCard,marginBottom:8,cursor:'pointer'}} onClick={()=>setSelectedOrder(orders.find(ord=>ord.id===o.id)||o)}>
                   <div style={s.orderRow}>
                     <div style={s.orderLeft}>
@@ -322,6 +351,7 @@ export default function StationPanel() {
                 </div>
               ))
             }
+            <Pagination arr={stationOrders} tab="estacion" />
           </div>
         )}
 
@@ -335,18 +365,54 @@ export default function StationPanel() {
                 style={{padding:'6px 10px',border:'1px solid #ddd',borderRadius:8,fontSize:13}} />
             </div>
 
-            {/* Alerta delay >6h */}
+            {/* Tabla de órdenes con delay >6h */}
             {delayedOrders.length > 0 && (
-              <div style={{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:10,padding:'12px 16px',marginBottom:'1rem'}}>
-                <p style={{fontSize:13,color:'#991B1B',margin:0,fontWeight:700}}>
-                  🚨 {delayedOrders.length} orden{delayedOrders.length!==1?'es':''} con más de 6 horas en tránsito sin entrega
-                </p>
-                <div style={{marginTop:8,display:'flex',flexWrap:'wrap',gap:6}}>
-                  {delayedOrders.map((o,i)=>(
-                    <span key={i} style={{fontSize:11,padding:'2px 8px',borderRadius:20,background:'#FEE2E2',color:'#991B1B',fontWeight:600}}>
-                      #{o.tracking_code}
-                    </span>
-                  ))}
+              <div style={{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:10,marginBottom:'1rem',overflow:'hidden'}}>
+                <div style={{padding:'12px 16px',borderBottom:'1px solid #FECACA'}}>
+                  <p style={{fontSize:18,color:'#991B1B',margin:0,fontWeight:700}}>
+                    🚨 {delayedOrders.length} orden{delayedOrders.length!==1?'es':''} con más de 6 horas sin entrega
+                  </p>
+                </div>
+                <div style={{overflowX:'auto'}}>
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:16}}>
+                    <thead>
+                      <tr style={{background:'#FEE2E2'}}>
+                        {['Guía','Repartidor','Ruta','Última actualización','Destino'].map(h=>(
+                          <th key={h} style={{textAlign:'left',padding:'10px 12px',color:'#991B1B',fontWeight:600,fontSize:15,whiteSpace:'nowrap'}}>
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginate(delayedOrders,'rutas').map((o,i)=>{
+                        const horasRetraso = Math.floor((now - new Date(o.status_updated_at)) / (1000*60*60))
+                        const route = routes.find(r => r.items?.some(it => it.order_id === o.id))
+                        return (
+                          <tr key={i} style={{borderBottom:'1px solid #FECACA',background:i%2===0?'#fff':'#FFF5F5'}}>
+                            <td style={{padding:'10px 12px',fontWeight:700,color:'#222'}}>{o.tracking_code}</td>
+                            <td style={{padding:'10px 12px',color:'#444'}}>
+                              {o.driver?.user?.full_name||'Sin asignar'}
+                              {o.driver?.user?.phone && <div style={{fontSize:13,color:'#888'}}>{o.driver.user.phone}</div>}
+                            </td>
+                            <td style={{padding:'10px 12px',color:'#185FA5',fontWeight:600}}>
+                              {route?.route_code||'—'}
+                            </td>
+                            <td style={{padding:'10px 12px',color:'#DC2626',fontWeight:600,whiteSpace:'nowrap'}}>
+                              {fmtDate(o.status_updated_at)}
+                              <div style={{fontSize:13,color:'#991B1B'}}>⏱️ {horasRetraso}h de retraso</div>
+                            </td>
+                            <td style={{padding:'10px 12px',color:'#555',fontSize:14}}>
+                              {o.dest_address?.substring(0,40)}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{padding:'8px 16px'}}>
+                  <Pagination arr={delayedOrders} tab="rutas" />
                 </div>
               </div>
             )}
@@ -369,7 +435,7 @@ export default function StationPanel() {
             {/* Lista de rutas */}
             {todayRoutes.length === 0
               ? <div style={s.empty}><p style={s.emptyText}>No hay rutas para esta fecha</p></div>
-              : todayRoutes.map((route,i) => {
+              : paginate(todayRoutes,'rutas').map((route,i) => {
                 const total = route.items?.length || 0
                 const statusColor = {CREADA:'#FAEEDA',EN_RUTA:'#E6F1FB',COMPLETADA:'#DCFCE7',CANCELADA:'#FEE2E2'}
                 const statusText  = {CREADA:'#92400E',EN_RUTA:'#1E40AF',COMPLETADA:'#166534',CANCELADA:'#991B1B'}
@@ -402,6 +468,7 @@ export default function StationPanel() {
                 )
               })
             }
+            <Pagination arr={todayRoutes} tab="rutas" />
           </div>
         )}
 
@@ -424,7 +491,7 @@ export default function StationPanel() {
                   <p style={{fontSize:12,color:'#16a34a'}}>Todos los repartidores tienen sus guías en orden</p>
                 </div>
               )
-              : pendingDrivers.map((driver, i) => (
+              : paginate(pendingDrivers,'antirobo').map((driver, i) => (
                 <div key={i} style={{background:'#fff',border:'2px solid #FECACA',borderRadius:10,padding:'1rem',marginBottom:8}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
                     <div>
@@ -454,6 +521,7 @@ export default function StationPanel() {
                 </div>
               ))
             }
+            <Pagination arr={pendingDrivers} tab="antirobo" />
           </div>
         )}
 

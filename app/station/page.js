@@ -31,6 +31,8 @@ export default function StationPanel() {
   const [drivers, setDrivers]       = useState([])
   const [stationOrders, setStationOrders]   = useState([])
   const [pendingDrivers, setPendingDrivers] = useState([])
+  const [routes, setRoutes]                 = useState([])
+  const [routeFilterDate, setRouteFilterDate] = useState(new Date().toISOString().slice(0,10))
   const [loading, setLoading]       = useState(true)
   const [activeTab, setActiveTab]   = useState('recibir')
   const [selectedOrder, setSelectedOrder] = useState(null)
@@ -63,7 +65,8 @@ export default function StationPanel() {
       { data: ordersData },
       { data: driversData },
       { data: stationData },
-      { data: pendingData }
+      { data: pendingData },
+      { data: routesData }
     ] = await Promise.all([
       supabase.from('orders')
         .select('*, client:client_id(full_name,phone), driver:driver_id(id,user_id,users(full_name))')
@@ -74,12 +77,17 @@ export default function StationPanel() {
         .select('id, user:user_id(full_name,email)')
         .eq('status', 'online'),
       supabase.rpc('get_station_orders'),
-      supabase.rpc('get_drivers_with_pending_returns')
+      supabase.rpc('get_drivers_with_pending_returns'),
+      supabase.from('routes')
+        .select('*, driver:driver_id(id,user:user_id(full_name,phone)), items:route_items(id,item_type,order_id,transport_order_id)')
+        .order('created_at', { ascending: false })
+        .limit(100),
     ])
     setOrders(ordersData || [])
     setDrivers(driversData || [])
     setStationOrders(Array.isArray(stationData) ? stationData : [])
     setPendingDrivers(Array.isArray(pendingData) ? pendingData : [])
+    setRoutes(routesData || [])
     if (driversData?.length > 0) setSelectedDriver(driversData[0].id)
   }
 
@@ -181,9 +189,19 @@ export default function StationPanel() {
   const devoluciones  = byStatus(['regreso_a_cliente'])
   const activas       = byStatus(['picked_up','en_estacion','in_transit','intento_fallido','regreso_a_cliente'])
 
+  const todayRoutes   = routes.filter(r => r.date === routeFilterDate)
+  const routesEnRuta  = todayRoutes.filter(r => r.status === 'EN_RUTA')
+  const now           = new Date()
+  const delayedOrders = orders.filter(o =>
+    o.status === 'in_transit' &&
+    o.status_updated_at &&
+    (now - new Date(o.status_updated_at)) > 6 * 60 * 60 * 1000
+  )
+
   const TABS = [
     { id:'recibir',      label:'📥 Recibir',       count: porRecibir.length,    color:'#185FA5' },
     { id:'despachar',    label:'🚚 Despachar',      count: enEstacion.length,    color:'#7C3AED' },
+    { id:'rutas',        label:'🗺️ Rutas',          count: todayRoutes.length,   color:'#085041', alert: delayedOrders.length > 0 },
     { id:'devoluciones', label:'🔄 Devoluciones',   count: devoluciones.length,  color:'#DC2626' },
     { id:'estacion',     label:'📦 Mi Estación',    count: stationOrders.length, color:'#085041' },
     { id:'antirobo',     label:'🚨 Anti-Robo',      count: pendingDrivers.length,color:'#DC2626' },
@@ -292,6 +310,86 @@ export default function StationPanel() {
                   </div>
                 </div>
               ))
+            }
+          </div>
+        )}
+
+        {/* TAB RUTAS DEL DÍA */}
+        {activeTab === 'rutas' && (
+          <div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}}>
+              <h2 style={{fontSize:15,fontWeight:600}}>Rutas del día</h2>
+              <input type="date" value={routeFilterDate}
+                onChange={e=>setRouteFilterDate(e.target.value)}
+                style={{padding:'6px 10px',border:'1px solid #ddd',borderRadius:8,fontSize:13}} />
+            </div>
+
+            {/* Alerta delay >6h */}
+            {delayedOrders.length > 0 && (
+              <div style={{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:10,padding:'12px 16px',marginBottom:'1rem'}}>
+                <p style={{fontSize:13,color:'#991B1B',margin:0,fontWeight:700}}>
+                  🚨 {delayedOrders.length} orden{delayedOrders.length!==1?'es':''} con más de 6 horas en tránsito sin entrega
+                </p>
+                <div style={{marginTop:8,display:'flex',flexWrap:'wrap',gap:6}}>
+                  {delayedOrders.map((o,i)=>(
+                    <span key={i} style={{fontSize:11,padding:'2px 8px',borderRadius:20,background:'#FEE2E2',color:'#991B1B',fontWeight:600}}>
+                      #{o.tracking_code}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Stats del día */}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:'1rem'}}>
+              {[
+                {label:'Total',       value:todayRoutes.length,                            color:'#374151'},
+                {label:'En Ruta',     value:routesEnRuta.length,                           color:'#1E40AF'},
+                {label:'Completadas', value:todayRoutes.filter(r=>r.status==='COMPLETADA').length, color:'#166534'},
+                {label:'Delay >6h',   value:delayedOrders.length,                          color:'#DC2626'},
+              ].map((k,i)=>(
+                <div key={i} style={{background:'#fff',border:'1px solid #eee',borderRadius:10,padding:'0.75rem',textAlign:'center'}}>
+                  <div style={{fontSize:22,fontWeight:700,color:k.color}}>{k.value}</div>
+                  <div style={{fontSize:11,color:'#888',marginTop:2}}>{k.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Lista de rutas */}
+            {todayRoutes.length === 0
+              ? <div style={s.empty}><p style={s.emptyText}>No hay rutas para esta fecha</p></div>
+              : todayRoutes.map((route,i) => {
+                const total = route.items?.length || 0
+                const statusColor = {CREADA:'#FAEEDA',EN_RUTA:'#E6F1FB',COMPLETADA:'#DCFCE7',CANCELADA:'#FEE2E2'}
+                const statusText  = {CREADA:'#92400E',EN_RUTA:'#1E40AF',COMPLETADA:'#166534',CANCELADA:'#991B1B'}
+                return (
+                  <div key={i} style={{background:'#fff',border:'1px solid #eee',borderRadius:10,padding:'1rem',marginBottom:8}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                      <div>
+                        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+                          <span style={{fontSize:13,fontWeight:700}}>{route.route_code}</span>
+                          <span style={{fontSize:10,padding:'2px 6px',borderRadius:10,
+                            background:route.type==='linehaul'?'#EFF6FF':'#F0FDF4',
+                            color:route.type==='linehaul'?'#1E40AF':'#166534',fontWeight:600}}>
+                            {route.type==='linehaul'?'🚛 Linehaul':'📦 Local'}
+                          </span>
+                        </div>
+                        <div style={{fontSize:12,color:'#888'}}>
+                          🚚 {route.driver?.user?.full_name||'Sin repartidor'}
+                          {route.driver?.user?.phone && ` · ${route.driver.user.phone}`}
+                        </div>
+                      </div>
+                      <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4}}>
+                        <span style={{fontSize:11,padding:'2px 8px',borderRadius:20,fontWeight:600,
+                          background:statusColor[route.status]||'#eee',color:statusText[route.status]||'#333'}}>
+                          {route.status}
+                        </span>
+                        <span style={{fontSize:11,color:'#888'}}>{total} guías</span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })
             }
           </div>
         )}

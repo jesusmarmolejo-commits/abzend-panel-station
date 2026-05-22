@@ -210,7 +210,8 @@ export default function StationPanel() {
 
   const tabOrders = {
     recibir: porRecibir, despachar: enEstacion,
-    devoluciones: devoluciones, activas: activas
+    devoluciones: devoluciones, activas: activas,
+    rutas: [], estacion: [], antirobo: []
   }
 
   return (
@@ -260,12 +261,13 @@ export default function StationPanel() {
           ))}
         </div>
 
-        {/* Lista */}
+        {/* Lista — solo para tabs de órdenes */}
+        {!['rutas','estacion','antirobo'].includes(activeTab) && (
         <div style={s.ordersList}>
-          {tabOrders[activeTab].length === 0 && (
+          {(tabOrders[activeTab]||[]).length === 0 && (
             <div style={s.empty}><p style={s.emptyText}>No hay órdenes en esta categoría</p></div>
           )}
-          {tabOrders[activeTab].map(order=>(
+          {(tabOrders[activeTab]||[]).map(order=>(
             <div key={order.id} style={s.orderCard} onClick={()=>setSelectedOrder(order)}>
               <div style={s.orderRow}>
                 <div style={s.orderLeft}>
@@ -283,6 +285,7 @@ export default function StationPanel() {
             </div>
           ))}
         </div>
+        )}
 
         {/* TAB MI ESTACIÓN */}
         {activeTab === 'estacion' && (

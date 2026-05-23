@@ -299,7 +299,7 @@ export default function StationPanel() {
         <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:'1rem'}}>
           {TABS.map(tab=>(
             <div key={tab.id} style={{background:'#fff',border:'1px solid #eee',borderRadius:10,padding:'0.75rem',textAlign:'center',cursor:'pointer'}}
-              onClick={()=>setActiveTab(tab.id)}>
+              onClick={()=>{ setActiveTab(tab.id); loadAll(createClient()) }}>
               <div style={{fontSize:22,fontWeight:700,color:tab.color}}>{tab.count}</div>
               <div style={{fontSize:11,color:'#888',marginTop:2}}>{tab.label}</div>
             </div>
